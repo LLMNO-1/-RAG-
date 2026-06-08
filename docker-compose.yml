@@ -1,0 +1,98 @@
+version: '3.5' # 指定 Docker Compose 文件的语法版本为 3.5
+
+services: # 定义需要运行的各个服务（容器）集合
+  etcd: # 定义 etcd 服务。Milvus 强依赖它来存储集群的元数据（如 Collection 结构、节点状态等）
+    container_name: milvus-etcd # 固定容器名称，方便后期通过 docker 命令直接管理
+    image: quay.io/coreos/etcd:v3.5.25 # 指定使用的 etcd 官方镜像及具体版本号 v3.5.25
+    environment: # 配置容器运行时的核心环境变量
+      - ETCD_AUTO_COMPACTION_MODE=revision # 开启自动压缩，模式为基于版本号（revision）压缩
+      - ETCD_AUTO_COMPACTION_RETENTION=1000 # 保留最近的 1000 个版本，更早的历史变更将被清理，防止内存撑爆
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296 # 设置数据库后端存储配额上限为 4GB (4294967296 字节)
+      - ETCD_SNAPSHOT_COUNT=50000 # 每当发生 50000 次事务变更时，触发一次持久化快照打盘
+    volumes: # 配置目录映射，实现数据持久化（即便容器被删，数据依然在宿主机上）
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/etcd:/etcd # 将宿主机目录挂载到容器内的 /etcd 目录
+    command: etcd -advertise-client-urls=http://etcd:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd # 覆盖默认启动命令，设置监听所有网卡 (0.0.0.0) 的 2379 端口，并指定数据存放目录
+    healthcheck: # 容器健康检查机制，决定了依赖它的服务何时能启动
+      test: ["CMD", "etcdctl", "endpoint", "health"] # 使用 etcd 自带的命令行工具测试端点存活状态
+      interval: 30s # 检查频率：每 30 秒执行一次
+      timeout: 20s # 超时时间：每次检查最多等待 20 秒
+      retries: 3 # 容错次数：连续失败 3 次则将容器状态标记为 unhealthy
+    restart: always  # 重启策略：无论容器因何种原因退出（如宿主机重启），Docker 都会自动将其拉起
+
+  minio: # 定义 MinIO 服务。Milvus 依赖此对象存储来保存持久化的向量切片和标量日志文件
+    container_name: milvus-minio # 固定容器名称为 milvus-minio
+    image: minio/minio:RELEASE.2024-12-18T13-15-44Z # 指定 MinIO 的确切发行版镜像
+    environment: # 配置 MinIO 的初始化认证信息
+      MINIO_ACCESS_KEY: minioadmin # 设置 MinIO 的 Access Key（登录账号）
+      MINIO_SECRET_KEY: minioadmin # 设置 MinIO 的 Secret Key（登录密码）
+    ports: # 配置端口映射，格式为 "宿主机端口:容器内端口"
+      - "9001:9001" # 映射控制台端口，方便在浏览器中打开 MinIO Web 界面可视化查看文件
+      - "9000:9000" # 映射 API 端口，Milvus 读写数据都是通过这根管道进行的
+    volumes: # 数据卷持久化挂载
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/minio:/minio_data # 将宿主机目录映射给 MinIO 存放实际的 Bucket 对象文件
+    command: minio server /minio_data --console-address ":9001" # 启动 MinIO 服务端，指定数据存储路径，并强制固定 Web UI 端口为 9001
+    healthcheck: # MinIO 的健康检查配置
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"] # 通过 curl 请求其原生的 /live 探针接口
+      interval: 30s # 每 30 秒检查一次
+      timeout: 20s # 每次检查超时 20 秒
+      retries: 3 # 允许失败 3 次
+    restart: always  # 总是自动重启
+
+  standalone: # 定义 Milvus 向量数据库核心服务（单机版模式）
+    container_name: milvus-standalone # 固定容器名称
+    image: milvusdb/milvus:v2.5.5 # 指定 Milvus V2.5.5 官方镜像
+    command: ["milvus", "run", "standalone"] # 以 standalone（将读写节点、查询节点等全打包在单一进程内）模式启动
+    security_opt: # Docker 容器安全选项
+    - seccomp:unconfined # 解除系统的 seccomp 系统调用过滤限制。Milvus 底层某些针对 CPU 向量指令集（如 AVX-512）的极致优化操作需要这一权限
+    environment: # 核心环境变量，建立组件间的通信桥梁
+      ETCD_ENDPOINTS: etcd:2379 # 告诉 Milvus 如何连接 etcd 服务（这里使用了 Docker 内部 DNS 名称 "etcd"）
+      MINIO_ADDRESS: minio:9000 # 告诉 Milvus 如何连接 MinIO 存储节点
+      MQ_TYPE: rocksmq # 告诉 Milvus 使用轻量级的本地 RocksMQ 作为消息队列（单机版标配，无需额外额部署 Pulsar 或 Kafka）
+    volumes: # 数据卷挂载
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/milvus:/var/lib/milvus # 持久化 Milvus 运行期间产生的本地数据（如 RocksMQ 的消息日志）
+    healthcheck: # Milvus 健康检查配置
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"] # 访问 9091 管理端口的 healthz 接口判断可用性
+      interval: 30s # 检查频率 30 秒
+      start_period: 90s # 启动宽限期：给 Milvus 90 秒的初始化时间，期间的检查失败不作数（Milvus 启动加载项较多）
+      timeout: 20s # 超时 20 秒
+      retries: 3 # 容错 3 次
+    ports: # 向外部宿主机暴露端口
+      - "19530:19530" # 核心端口：Python 代码（如 PyMilvus 库）通过该端口使用 gRPC/RESTful 协议执行增删改查
+      - "9091:9091" # 管理端口：用于暴露 Prometheus 监控指标 (metrics) 以及健康状态
+    restart: always  # 总是自动重启
+    depends_on: # 启动顺序依赖控制
+      - "etcd" # 等待 etcd 容器启动后再启动本容器
+      - "minio" # 等待 minio 容器启动后再启动本容器
+      
+  attu: # 定义 Attu 服务，这是 Milvus 官方提供的、专给人类看的直观图形化管理界面
+    container_name: attu # 固定容器名称
+    image: zilliz/attu:v2.5.10 # 使用与 Milvus 2.5 版本配套的 Attu 镜像（版本兼容非常重要）
+    environment: # Attu 的运行参数
+      - MILVUS_URL=standalone:19530 # 设置 Attu 要接管的 Milvus 数据库的内部访问地址
+      - ATTU_LOG_LEVEL=info # 设置后端控制台的日志打印级别为 info
+      - SERVER_NAME=auto_gui # 定义该 GUI 服务的内部标识名
+      - SERVER_PORT=7000 # 设置 Attu Web 服务在容器内监听的端口为 7000
+    ports: # 映射给前端浏览器使用
+      - "7000:7000" # 映射到宿主机 7000，开发时浏览器直接访问 http://localhost:7000 即可进入管理面板
+    volumes: # 数据挂载
+      # 映射您指定的 TLS 目录
+      - /root/milvus:/app/tls # 若后续为 Milvus 配置了安全证书（TLS/SSL），Attu 将从这里读取证书建立安全连接
+    restart: always  # 总是自动重启
+    depends_on: # 依赖控制
+      - standalone    # 必须等 Milvus (standalone) 启动完毕后，UI 界面才跟着启动
+
+  mongo: # 定义 MongoDB 服务
+    container_name: my-mongo # 固定容器名称为 my-mongo
+    image: mongo:7.0 # 指定使用的 mongo 官方镜像及具体版本号 7.0
+    environment: # 配置 MongoDB 的初始化账号密码
+      - MONGO_INITDB_ROOT_USERNAME=admin # 初始化 root 用户名
+      - MONGO_INITDB_ROOT_PASSWORD=123456 # 初始化 root 密码
+    ports: # 配置端口映射
+      - "27017:27017" # 映射给外部连接使用的 27017 端口
+    volumes: # 数据卷持久化挂载
+      - /mongo-data:/data/db # 将宿主机目录 /mongo-data 映射给 MongoDB 存放实际数据
+    restart: always 
+
+networks: # 自定义容器内部的虚拟网络
+  default: # 覆盖默认网络行为
+    name: milvus # 统一命名为 "milvus"。在此网络下，各个容器可直接使用对方的服务名（如 "minio", "etcd", "mongo"）互通有无，无需知道对方的真实内网 IP

@@ -306,8 +306,8 @@
   </div>
 
   <script>
-    // 默认同源；如你把页面单独打开（file://），可改成 http://127.0.0.1:8001
-    const API_BASE = `${location.protocol}//${location.host}`.includes('http') ? `${location.protocol}//${location.host}` : 'http://127.0.0.1:8001';
+    // 默认同源；如你把页面单独打开（file://），可改成 http://127.0.0.1:8002
+    const API_BASE = `${location.protocol}//${location.host}`.includes('http') ? `${location.protocol}//${location.host}` : 'http://127.0.0.1:8002';
     const chatEl = document.getElementById('chat');
     const inputEl = document.getElementById('input');
     const sendBtn = document.getElementById('send');
@@ -635,8 +635,8 @@
       if(err){
         const progressEl = progress ? progress : null;
         if(progressEl) {
-            progressEl.remove();
             progressEl.removeAttribute('open');
+            progressEl.remove();
         }
         bubble.textContent = '';
         const errEl = document.createElement('div');
@@ -649,8 +649,8 @@
 
       const progressEl = progress ? progress : null;
       if(progressEl) {
-        progressEl.remove();
         progressEl.removeAttribute('open'); // 完成后自动收起
+        progressEl.remove();
       }
       bubble.textContent = '';
       const answerEl = document.createElement('div');
@@ -858,7 +858,7 @@
         const progress = botMsgEl.querySelector('details.progress');
         const typing = botMsgEl.querySelector('.typing');
         if(typing) typing.remove();
-        bubble.innerHTML = `请求失败：${escapeHtml(e.message || e)}\n\n` + progress.outerHTML;
+        bubble.innerHTML = `请求失败：${escapeHtml(e.message || e)}\n\n` + (progress ? progress.outerHTML : '');
         sendBtn.disabled = false;
       }
     }

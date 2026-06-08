@@ -1,0 +1,11 @@
+﻿question,ground_truth
+Hugging Face 生态：Hugging Face 生态主要由哪两个核心部分组成？,主要由 Hugging Face Hub（集中式开源平台，用于托管和分享模型、数据集和应用）和工具链 Libraries（包括 Datasets、Tokenizers、Transformers 等组件）两部分组成。
+Hugging Face 生态：Transformers 库中的 AutoModel 类和 AutoModelForXXX 类有什么区别？,AutoModel 只加载预训练模型的主干结构，不包含任务相关的输出层，适用于特征提取或自定义模型结构。AutoModelForXXX 类在模型主干基础上自动添加了适配任务的输出层（任务头），使模型能直接用于分类、NER、问答等标准 NLP 任务的训练与推理。
+Hugging Face 生态：使用 AutoTokenizer 加载分词器时，从在线加载和从本地加载分别怎么写？,在线加载：tokenizer = AutoTokenizer.from_pretrained(\"google-bert/bert-base-chinese\")；本地加载：tokenizer = AutoTokenizer.from_pretrained(\"/pretrained/bert-base-chinese\")，要求目录中包含词表和配置文件。
+Hugging Face 生态：Tokenizer 的 tokenize()、encode() 和 tokenizer() 方法有什么区别？,tokenize() 只做子词切分返回 token 列表；encode() 将 tokenize 和 convert_tokens_to_ids 合并，通常还会自动添加 [CLS] 和 [SEP] 等特殊符号；tokenizer()（即 __call__ 方法）是最推荐的接口，直接构造模型所需的完整输入，包括 input_ids、token_type_ids 和 attention_mask。
+Hugging Face 生态：datasets 库的 load_dataset() 函数如何加载多个 CSV 文件并划分为训练集和测试集？,使用字典形式指定 data_files 参数：load_dataset('csv', data_files={'train': './data/train.csv', 'test': './data/test.csv'})。返回一个包含 train 和 test 两个 Dataset 的 DatasetDict 对象。
+Hugging Face 生态：在国内使用 Hugging Face 时如何配置镜像站以避免下载失败？,设置环境变量 HF_ENDPOINT=https://hf-mirror.com，之后 AutoModel 和 AutoTokenizer 的 from_pretrained() 方法会自动从国内镜像站下载模型资源。
+Hugging Face 生态：从 Hugging Face Hub 下载的模型资源默认缓存在本地的什么路径？,默认缓存路径是 ~/.cache/huggingface/hub/。下次加载相同模型时会直接读取缓存，不再联网下载。
+Hugging Face 生态：AutoModelForSequenceClassification 加载模型时，num_labels 参数的作用是什么？,num_labels 指定分类任务的类别数，默认值为 2，用于构建分类头（线性层）的输出维度。
+Hugging Face 生态：Tokenizer 的 tokenizer() 方法中，padding、truncation、max_length 和 return_tensors 参数分别有什么作用？,padding 用于自动补齐序列到统一长度；truncation 用于自动截断超长文本；max_length 指定统一的最大长度；return_tensors=\"pt\" 指定返回 PyTorch 张量格式。
+Hugging Face 生态：Datasets 库中 Dataset 对象支持哪两种方式访问样本？返回结构有何不同？,支持索引访问 dataset[0] 和切片访问 dataset[:3]。索引访问返回单条样本的字典（如 {'review': '很喜欢的一本书', 'label': 1}）；切片访问返回字段为列表的字典（如 {'review': ['很喜欢的一本书', '内容丰富'], 'label': [1, 1]}）。

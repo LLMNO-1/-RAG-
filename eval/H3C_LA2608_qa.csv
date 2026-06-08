@@ -1,0 +1,11 @@
+﻿question,ground_truth
+H3C LA2608室内无线网关：LA2608 通过什么方式连接到运营商无线控制器？,LA2608 安装了 SIM 卡，通过 3G/4G 网络连接到运营商无线控制器，并向用户提供无线服务。
+H3C LA2608室内无线网关：配置 LA2608 的 DCC 拨号时，dialer number 命令的拨号串从哪里获取？,不同运营商的拨号串不同，用户在配置前需要向网络运营商获取发起呼叫的拨号串。示例中使用的拨号串为 *99#。
+H3C LA2608室内无线网关：如何在 LA2608 上配置静态路由指向蜂窝网络接口？,在系统视图下执行命令：ip route-static 0.0.0.0 0.0.0.0 Cellular-Ethernet2/0，将所有流量路由到蜂窝网络接口。
+H3C LA2608室内无线网关：配置运营商无线控制器时，如何创建明文方式的服务模板并绑定 SSID？,依次执行：wlan service-template 1 clear，ssid ssidh3c，bind WLAN-ESS 1，service-template enable。创建 WLAN-ESS 接口并加入业务 VLAN，然后在 AP 配置中绑定该服务模板。
+H3C LA2608室内无线网关：如何验证 LA2608 与无线控制器是否已成功建立连接？,在无线控制器上执行 display wlan ap all 命令。如果 state 字段显示为 "R/M"（Run/Master），表示 LA2608 与无线控制器之间已经建立连接。
+H3C LA2608室内无线网关：LA2608 目前支持与哪些厂商的无线控制器互通？,目前 LA2608 只支持与 H3C 公司的无线控制器互通。
+H3C LA2608室内无线网关：在 LA2608 上配置 DNS 解析功能的命令是什么？,在系统视图下执行命令：dns resolve。
+H3C LA2608室内无线网关：在无线控制器上开启自动 AP 功能并注册 LA2608 时，需要指定哪两个关键参数？,需要指定 model 为 LA2608 以及 AP 的 id。命令为：wlan auto-ap enable，wlan ap 2608 model LA2608 id 1，serial-id auto。
+H3C LA2608室内无线网关：在无线控制器上配置 DHCP 地址池时，需要设置哪些关键参数？,需要设置 network（如 10.249.136.0 22）、gateway-list（如 10.249.136.1）和 dns-list（如 218.201.96.130），并先执行 dhcp enable 使能 DHCP 服务。
+H3C LA2608室内无线网关：配置 LA2608 拨号时 dialer timer idle 0 和 dialer timer autodial 5 分别表示什么含义？,dialer timer idle 0 表示空闲超时时间为 0（连接不会因空闲而断开），dialer timer autodial 5 表示自动拨号间隔为 5 秒。

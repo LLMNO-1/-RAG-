@@ -2,12 +2,11 @@ from typing import List, Tuple, Dict, Any, Optional
 from pathlib import Path
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
 from pymilvus import MilvusClient, DataType
+from knowledge.utils.client.ai_clients import AIClients, BGEM3EmbeddingFunction
 from knowledge.processor.import_processor.base import BaseNode, setup_logging, T
 from knowledge.processor.import_processor.state import ImportGraphState
 from knowledge.processor.import_processor.exceptions import StateFieldError, ValidationError
-from knowledge.utils.client.ai_clients import AIClients
 from knowledge.utils.client.storage_clients import StorageClients
 from knowledge.prompts.import_prompt import ITEM_NAME_SYSTEM_PROMPT, ITEM_NAME_USER_PROMPT_TEMPLATE
 

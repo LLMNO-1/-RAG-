@@ -95,4 +95,4 @@ if __name__ == '__main__':
     # param1:fastapi实例
     # param2:启动的服务器地址
     # param3:启动的服务端口
-    uvicorn.run(app=create_app(), host="0.0.0.0", port=8000, log_level="info")
+    uvicorn.run(app=create_app(), host="0.0.0.0", port=8001, log_level="info")

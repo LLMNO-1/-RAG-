@@ -1,6 +1,6 @@
 from typing import List, Dict, Any
 from pathlib import Path
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
+from knowledge.utils.client.ai_clients import BGEM3EmbeddingFunction
 from knowledge.processor.import_processor.base import BaseNode, setup_logging, T
 from knowledge.processor.import_processor.state import ImportGraphState
 from knowledge.processor.import_processor.exceptions import StateFieldError, ValidationError, EmbeddingError

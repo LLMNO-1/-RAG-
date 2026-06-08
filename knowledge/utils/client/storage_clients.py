@@ -1,4 +1,6 @@
 import threading
+import os
+from pathlib import Path
 from typing import Optional
 from typing import TypeVar, Optional
 import logging
@@ -12,7 +14,9 @@ from pymongo.database import Database
 from dotenv import load_dotenv
 from knowledge.utils.client.base import BaseClientManager
 
-load_dotenv()
+# 从当前模块文件位置向上找到 knowledge/.env（适配任意 CWD）
+_env_path = Path(__file__).resolve().parent.parent.parent / '.env'
+load_dotenv(dotenv_path=_env_path)
 
 
 class StorageClients(BaseClientManager):

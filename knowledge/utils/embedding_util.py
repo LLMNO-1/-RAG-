@@ -1,5 +1,5 @@
 from typing import  List
-from pymilvus.model.hybrid import BGEM3EmbeddingFunction
+from knowledge.utils.client.ai_clients import BGEM3EmbeddingFunction
 
 
 def generate_bge_m3_hybrid_vectors(model: BGEM3EmbeddingFunction, embedding_documents: List[str]):
