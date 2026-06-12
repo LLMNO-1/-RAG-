@@ -103,6 +103,20 @@ class QueryConfig:
         default_factory=lambda: os.getenv("MCP_DASHSCOPE_BASE_URL", "")
     )
 
+    # ==================== LangFuse 配置 ====================
+    langfuse_enabled: bool = field(
+        default_factory=lambda: os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+    )
+    langfuse_host: str = field(
+        default_factory=lambda: os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+    )
+    langfuse_public_key: str = field(
+        default_factory=lambda: os.getenv("LANGFUSE_PUBLIC_KEY", "")
+    )
+    langfuse_secret_key: str = field(
+        default_factory=lambda: os.getenv("LANGFUSE_SECRET_KEY", "")
+    )
+
     @classmethod
     def from_env(cls) -> "QueryConfig":
         """从环境变量加载配置。

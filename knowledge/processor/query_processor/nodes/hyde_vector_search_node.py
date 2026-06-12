@@ -1,4 +1,5 @@
 from typing import Tuple, List, Dict, Any, Optional, Union
+import time
 
 from langchain_core.messages import SystemMessage, HumanMessage
 from knowledge.processor.query_processor.base import BaseNode, T
@@ -9,12 +10,16 @@ from knowledge.utils.client.storage_clients import StorageClients
 from knowledge.prompts.query_prompt import HYDE_USER_PROMPT_TEMPLATE
 from knowledge.utils.embedding_util import generate_bge_m3_hybrid_vectors
 from knowledge.utils.milvus_util import create_hybrid_search_requests, execute_hybrid_search_query, _item_names_filter
+from knowledge.utils.trace_util import get_trace_manager
 
 
 class HyDeVectorSearchNode(BaseNode):
     name = "hyde_vector_search_node"
 
     def process(self, state: QueryGraphState) -> Union[QueryGraphState, Dict[str, Any]]:
+
+        # 缓存 trace_id 供子方法使用
+        self._cached_trace_id = state.get('trace_id', '')
 
         # 1. 参数校验
         rewritten_query, item_names = self._validate_state(state)
@@ -102,10 +107,11 @@ class HyDeVectorSearchNode(BaseNode):
             rewritten_query:
             item_names:
 
-
         Returns:
 
         """
+        trace_mgr = get_trace_manager()
+        start_time = time.time()
 
         # 1. 获取LLM客户端
         try:
@@ -134,8 +140,23 @@ class HyDeVectorSearchNode(BaseNode):
         if not llm_response.content.strip():
             return None
 
-        # 5. 返回
-        return llm_response.content.strip()
+        hy_doc = llm_response.content.strip()
+
+        # 5. 记录 Generation Span
+        trace_mgr.create_generation(
+            trace_id=self._get_trace_id(),
+            name="llm_hyde_generation",
+            model=getattr(llm_client, 'model_name', 'unknown'),
+            input_text=user_prompt,
+            output_text=hy_doc,
+            metadata={"latency_ms": round((time.time() - start_time) * 1000)},
+        )
+
+        # 6. 返回
+        return hy_doc
+
+    def _get_trace_id(self) -> str:
+        return getattr(self, '_cached_trace_id', '')
 
 
 if __name__ == "__main__":

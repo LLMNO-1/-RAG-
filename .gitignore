@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 # 忽略 eval 目录下的 finetuned_bge_m3 文件夹及其所有内容
 eval/finetuned_bge_m3/
+.claude
+docs
+尚硅谷大模型技术之LLM-V1.2.docx

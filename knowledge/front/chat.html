@@ -280,6 +280,7 @@
         </div>
       </div>
       <div class="top-actions">
+        <a href="/front/dashboard.html" style="font-size:12px;color:var(--muted);text-decoration:none;margin-right:10px;">仪表盘</a>
         <label style="font-size:12px;display:flex;align-items:center;gap:4px;cursor:pointer;user-select:none;color:var(--muted);margin-right:10px;">
           <input type="checkbox" id="streamToggle" checked> 流式输出
         </label>
@@ -594,14 +595,24 @@
       return document.getElementById(id);
     }
 
-    function renderProgress(botMsgEl, doneList, runningList, status){
+    function formatDuration(seconds){
+      if(seconds == null || isNaN(seconds)) return '';
+      const s = Number(seconds);
+      if(s >= 60) return `${Math.floor(s/60)}分${(s%60).toFixed(1)}秒`;
+      if(s >= 1) return `${s.toFixed(1)}秒`;
+      return `${(s*1000).toFixed(0)}毫秒`;
+    }
+
+    function renderProgress(botMsgEl, doneList, runningList, status, durations){
       const details = botMsgEl.querySelector('details.progress');
       const summary = details.querySelector('summary');
       const ul = details.querySelector('ul');
       const done = Array.isArray(doneList) ? doneList : [];
       const running = Array.isArray(runningList) ? runningList : [];
+      const durMap = (durations && typeof durations === 'object') ? durations : {};
       const totalDone = done.length;
       const totalRun = running.length;
+      const totalDuration = Object.values(durMap).reduce((a,b)=>a+(Number(b)||0), 0);
 
       const statusMap = {
         'processing': '处理中',
@@ -610,11 +621,16 @@
         'pending': '等待中',
       };
       const displayStatus = statusMap[status] || status || 'unknown';
+      const durText = totalDuration > 0 ? `，总耗时 ${formatDuration(totalDuration)}` : '';
 
-      summary.textContent = `阶段进度（已完成${totalDone}，进行中${totalRun}，状态：${displayStatus}）`;
+      summary.textContent = `阶段进度（已完成${totalDone}，进行中${totalRun}，状态：${displayStatus}${durText}）`;
 
       const lines = [
-        ...done.map(x => `✅ ${x}`),
+        ...done.map(x => {
+          const dur = durMap[x];
+          const durStr = dur ? ` (${formatDuration(dur)})` : '';
+          return `✅ ${x}${durStr}`;
+        }),
         ...running.map(x => `⏳ ${x}`)
       ];
       ul.innerHTML = '';
@@ -705,7 +721,7 @@
         try{
           const res = await fetch(`${API_BASE}/status/${taskId}`);
           const data = await res.json();
-          renderProgress(botMsgEl, data.done_list, data.running_list, data.status);
+          renderProgress(botMsgEl, data.done_list, data.running_list, data.status, data.durations);
 
           if(data.status === 'completed'){
             if(typing) typing.remove();
@@ -745,7 +761,7 @@
         if (!isStream) {
           // 非流式：直接拿到结果
           // data: { session_id, answer, done_list, error, message }
-          renderProgress(botMsgEl, data.done_list || [], [], 'completed');
+          renderProgress(botMsgEl, data.done_list || [], [], 'completed', data.durations);
           finalizeBotAnswer(botMsgEl, data.answer, data.error, data.image_urls || []);
           sendBtn.disabled = false;
           return;
@@ -769,8 +785,8 @@
         es.addEventListener('progress', (e) => {
           try{
             const d = JSON.parse(e.data || '{}');
-            renderProgress(botMsgEl, d.done_list, d.running_list, d.status);
-            // 当进度状态已完成时，提前结束“...”等待态
+            renderProgress(botMsgEl, d.done_list, d.running_list, d.status, d.durations);
+            // 当进度状态已完成时，提前结束”...”等待态
             if(d && d.status === 'completed'){
               const typing = botMsgEl.querySelector('.typing');
               if(typing) typing.remove();

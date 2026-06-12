@@ -9,6 +9,7 @@ from knowledge.utils.task_util import update_task_status, TASK_STATUS_PROCESSING
 from knowledge.utils.task_util import get_task_result
 from knowledge.utils.mongo_history_util import get_recent_messages
 from knowledge.utils.mongo_history_util import clear_history
+from knowledge.utils.trace_util import get_trace_manager
 
 
 class QueryService:
@@ -39,25 +40,42 @@ class QueryService:
         # 1. 修改任务状态为正在执行
         update_task_status(task_id=task_id, status_name=TASK_STATUS_PROCESSING)
 
-        # 2. 构建查询初始化状态
+        # 2. 创建 LangFuse Trace
+        trace_mgr = get_trace_manager()
+        trace = trace_mgr.create_trace(
+            name="query",
+            user_id=session_id,
+            session_id=session_id,
+            metadata={
+                "task_id": task_id,
+                "original_query": query[:200],
+                "is_stream": is_stream,
+            },
+        )
+        trace_id = trace.id if trace else ""
+
+        # 3. 构建查询初始化状态
         query_init_state = {
             "session_id": session_id,
             "task_id": task_id,
             "original_query": query,
-            "is_stream": is_stream
+            "is_stream": is_stream,
+            "trace_id": trace_id,
         }
 
-        # 3. 执行
+        # 4. 执行
         try:
-            # 3.1 执行查询流程的pineline(调用的是CompiledStateGraph的invoke())
+            # 4.1 执行查询流程的pineline(调用的是CompiledStateGraph的invoke())
             query_app.invoke(query_init_state)
-            # 3.2 更新整个任务状态为完成状态
+            # 4.2 更新整个任务状态为完成状态
             update_task_status(task_id=task_id, status_name=TASK_STATUS_COMPLETED)
 
-        # 4. 更新整个任务状态为异常状态
+        # 5. 更新整个任务状态为异常状态
         except Exception as e:
             logger.error(f"运行查询流程出现异常:{str(e)}")
             update_task_status(task_id=task_id, status_name=TASK_STATUS_FAILED)
+        finally:
+            trace_mgr.flush()
 
     def get_task_result(self, task_id: str):
         answer = get_task_result(task_id=task_id, key="answer")

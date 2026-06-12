@@ -91,7 +91,39 @@ services: # 定义需要运行的各个服务（容器）集合
       - "27017:27017" # 映射给外部连接使用的 27017 端口
     volumes: # 数据卷持久化挂载
       - /mongo-data:/data/db # 将宿主机目录 /mongo-data 映射给 MongoDB 存放实际数据
-    restart: always 
+    restart: always
+
+  langfuse-postgres: # LangFuse 依赖的 PostgreSQL 数据库
+    container_name: langfuse-postgres
+    image: postgres:16
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=postgres
+    volumes:
+      - ${DOCKER_VOLUME_DIRECTORY:-.}/volumes/langfuse_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    restart: always
+
+  langfuse-server: # LangFuse LLM 可观测性平台
+    container_name: langfuse-server
+    image: langfuse/langfuse:2
+    ports:
+      - "3000:3000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@langfuse-postgres:5432/postgres
+      - NEXTAUTH_SECRET=langfuse-secret-key-change-me
+      - NEXTAUTH_URL=http://localhost:3000
+      - SALT=langfuse-salt-change-me
+      - ENCRYPTION_KEY=00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff
+    depends_on:
+      langfuse-postgres:
+        condition: service_healthy
+    restart: always
 
 networks: # 自定义容器内部的虚拟网络
   default: # 覆盖默认网络行为

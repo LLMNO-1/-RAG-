@@ -80,6 +80,14 @@ class ImportConfig:
     )
     embedding_batch_size: int = 8  # 修改
 
+    # ==================== LangFuse 配置 ====================
+    langfuse_enabled: bool = field(
+        default_factory=lambda: os.getenv("LANGFUSE_ENABLED", "false").lower() == "true"
+    )
+    langfuse_host: str = field(
+        default_factory=lambda: os.getenv("LANGFUSE_HOST", "http://localhost:3000")
+    )
+
     # ==================== 速率限制 ====================
     requests_per_minute: int = 15  # 图片总结 API 速率限制
 

@@ -1,9 +1,11 @@
 from typing import Tuple, List, Dict, Any
 import math
+import time
 from FlagEmbedding import FlagReranker
 from knowledge.processor.query_processor.base import BaseNode, T
 from knowledge.processor.query_processor.state import QueryGraphState
 from knowledge.utils.client.ai_clients import AIClients
+from knowledge.utils.trace_util import get_trace_manager
 
 
 class RerankerNode(BaseNode):
@@ -23,6 +25,8 @@ class RerankerNode(BaseNode):
         Returns:
 
         """
+        # 缓存 trace_id 供子方法使用
+        self._cached_trace_id = state.get('trace_id', '')
 
         # 1. 获取用户问题
         user_query = state.get('rewritten_query') or state.get('original_query')
@@ -136,6 +140,10 @@ class RerankerNode(BaseNode):
         """
         if not rerank_outputs:
             return []
+        start_time = time.time()
+        trace_mgr = get_trace_manager()
+        trace_id = getattr(self, '_cached_trace_id', '')
+
         # 1. 获取重排序模型
         try:
             rerank_client: FlagReranker = AIClients.get_bge_m3_rerank_client()
@@ -156,7 +164,20 @@ class RerankerNode(BaseNode):
             # 5. 排序
             sorted_doc_score = sorted(doc_score, key=lambda x: x['score'], reverse=True)
 
-            # 6. 返回
+            # 6. 记录 Reranker Span
+            trace_mgr.create_generation(
+                trace_id=trace_id,
+                name="bge_reranker_compute",
+                model="bge-reranker-v2-m3",
+                input_text=user_query[:500],
+                metadata={
+                    "latency_ms": round((time.time() - start_time) * 1000),
+                    "input_count": len(rerank_outputs),
+                    "output_count": len(sorted_doc_score),
+                },
+            )
+
+            # 7. 返回
             return sorted_doc_score
         except Exception as e:
             self.logger.error(f"BGE-M3重排序模型计算分数失败 原因：{str(e)}")

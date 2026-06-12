@@ -3,13 +3,16 @@
 定义统一的节点接口规范，提供通用功能。
 """
 from abc import ABC, abstractmethod
-from typing import TypeVar, Optional
+from typing import TypeVar, Optional, Dict, Any
 import logging
+import time
+
 from knowledge.processor.query_processor.config import QueryConfig, get_config
 from knowledge.processor.query_processor.exceptions import QueryProcessError
-from knowledge.utils.task_util import add_running_task, add_done_task, get_task_status, get_running_task_list, \
-    get_done_task_list
+from knowledge.utils.task_util import add_running_task, add_done_task, add_node_duration, get_task_status, get_running_task_list, \
+    get_done_task_list, get_node_durations
 from knowledge.utils.sse_util import push_sse_event, SSEEvent
+from knowledge.utils.trace_util import get_trace_manager, is_trace_enabled
 
 T = TypeVar("T")  # 泛型状态类型
 
@@ -53,7 +56,7 @@ class BaseNode(ABC):
         """节点执行入口。
 
         LangGraph 调用节点时会调用此方法。
-        提供统一的日志输出、任务追踪和异常处理。
+        提供统一的日志输出、任务追踪、计时、Trace Span 和异常处理。
 
         Args:
             state: 图状态字典。
@@ -66,32 +69,49 @@ class BaseNode(ABC):
         """
         is_stream = state.get('is_stream')
         task_id = state.get('task_id')
+        trace_id = state.get('trace_id', '')
+        start_time = time.time()
 
-        try:
-            self.logger.info(f"--- {self.name} 开始 ---")
+        # 创建 Trace Span（自动在 with 块结束时关闭）
+        trace_mgr = get_trace_manager()
+        span_ctx = trace_mgr.create_span(
+            trace_id=trace_id,
+            name=self.name,
+            input_data={"state_keys": list(state.keys())},
+        )
 
-            if task_id:
-                add_running_task(task_id, self.name)  # 当前正准备执行的节点加入
-                # 如果是流式
-                if is_stream:
-                    self._push_progress(task_id)
+        with span_ctx:
+            try:
+                self.logger.info(f"--- {self.name} 开始 ---")
 
-            result = self.process(state)
-            if task_id:
-                add_done_task(task_id, self.name)  # 当前正准备执行的节点加入
-                # 如果是流式
-                if is_stream:
-                    self._push_progress(task_id)
+                if task_id:
+                    add_running_task(task_id, self.name)
+                    if is_stream:
+                        self._push_progress(task_id)
 
-            self.logger.info(f"--- {self.name} 完成 ---")
-            return result
-        except Exception as e:
-            self.logger.error(f"{self.name} 执行失败: {e}")
-            raise QueryProcessError(
-                message=str(e),
-                node_name=self.name,
-                cause=e
-            )
+                result = self.process(state)
+
+                if task_id:
+                    duration = round(time.time() - start_time, 2)
+                    add_done_task(task_id, self.name)
+                    add_node_duration(task_id, self.name, duration)
+                    if is_stream:
+                        self._push_progress(task_id)
+
+                span_ctx.update(output={"state_keys": list(result.keys())})
+
+                self.logger.info(f"--- {self.name} 完成 ({duration}s) ---")
+                return result
+            except Exception as e:
+                if task_id:
+                    duration = round(time.time() - start_time, 2)
+                    add_node_duration(task_id, self.name, duration)
+                self.logger.error(f"{self.name} 执行失败: {e}")
+                raise QueryProcessError(
+                    message=str(e),
+                    node_name=self.name,
+                    cause=e
+                )
 
     @abstractmethod
     def process(self, state: T) -> T:
@@ -121,12 +141,9 @@ class BaseNode(ABC):
 
     def _push_progress(self, task_id):
         """
-        推送节点的进度(全量推所有进度)
+        推送节点的进度(全量推所有进度) -- 含节点耗时数据
         Args:
             task_id: 任务id
-
-        Returns:
-
         """
         push_sse_event(task_id=task_id,
                        event=SSEEvent.PROGRESS,
@@ -134,17 +151,15 @@ class BaseNode(ABC):
                            "status": get_task_status(task_id),
                            "done_list": get_done_task_list(task_id),
                            "running_list": get_running_task_list(task_id),
+                           "durations": get_node_durations(task_id),
                        }
                        )
 
     def setup_logging(level: int = logging.INFO):
-        """配置查询流程日志。
+        """配置查询流程日志（JSON 格式）。
 
         Args:
             level: 日志级别，默认 INFO。
         """
-        logging.basicConfig(
-            level=level,
-            format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-            datefmt='%Y-%m-%d %H:%M:%S'
-        )
+        from knowledge.utils.log_util import setup_json_logging
+        setup_json_logging(level)

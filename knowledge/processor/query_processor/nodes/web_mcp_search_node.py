@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from json import JSONDecodeError
 from typing import Tuple, List, Dict, Any,Union
 from agents.mcp import MCPServerStreamableHttp
@@ -7,6 +8,7 @@ from agents.mcp import MCPServerStreamableHttp
 from knowledge.processor.query_processor.base import BaseNode, T
 from knowledge.processor.query_processor.state import QueryGraphState
 from knowledge.processor.query_processor.exceptions import StateFieldError
+from knowledge.utils.trace_util import get_trace_manager
 
 
 class WebMcpSearchNode(BaseNode):
@@ -14,18 +16,35 @@ class WebMcpSearchNode(BaseNode):
 
     def process(self, state: QueryGraphState) ->Union[QueryGraphState,Dict[str, Any]] :
 
+        # 缓存 trace_id
+        self._cached_trace_id = state.get('trace_id', '')
+
         # 1. 参数校验
         rewritten_query, item_names = self._validate_state(state)
 
         # 2. 定义并且执行mcp的调用
         # 调用方调用一个async修饰的方法，有且只有两种方式：方式一：继续添加await  方式二：将这个方法放到异步环境中(调用方是同步)
+        start_time = time.time()
         web_search_results = asyncio.run(self._execute_mcp_server(rewritten_query))
 
-        # 3. 判断
+        # 3. 记录 MCP Web 搜索 Span
+        trace_mgr = get_trace_manager()
+        trace_mgr.create_generation(
+            trace_id=getattr(self, '_cached_trace_id', ''),
+            name="mcp_web_search",
+            model="bailian_web_search",
+            input_text=rewritten_query[:500],
+            metadata={
+                "latency_ms": round((time.time() - start_time) * 1000),
+                "result_count": len(web_search_results),
+            },
+        )
+
+        # 4. 判断
         if not web_search_results:
             return state
 
-        # 4. 返回
+        # 5. 返回
         return {"web_search_docs": web_search_results}
 
     def _validate_state(self, state: QueryGraphState) -> Tuple[str, List[str]]:

@@ -5,12 +5,13 @@
 """
 
 from abc import ABC, abstractmethod
-from typing import TypeVar, Optional
+from typing import TypeVar, Optional, Dict, Any
 import logging, time
 
 from knowledge.processor.import_processor.config import ImportConfig, get_config
 from knowledge.processor.import_processor.exceptions import ImportProcessError
 from knowledge.utils.task_util import add_running_task, add_done_task, add_node_duration
+from knowledge.utils.trace_util import get_trace_manager, is_trace_enabled
 
 T = TypeVar("T")  # 泛型状态类型
 
@@ -52,7 +53,7 @@ class BaseNode(ABC):
         节点执行入口
 
         LangGraph 调用节点时会调用此方法。
-        提供统一的日志输出、任务追踪和异常处理。
+        提供统一的日志输出、任务追踪、Trace Span 和异常处理。
 
         Args:
             state: 图状态字典
@@ -64,30 +65,43 @@ class BaseNode(ABC):
             ImportProcessError: 节点执行失败时抛出
         """
         task_id = state.get('task_id', '')
-        try:
-            # 1. 开始准备执行节点
-            self.logger.info(f"--- {self.name} 开始 ---")
+        trace_id = state.get('trace_id', '')
 
-            # 2. 执行节点
-            if task_id:
-                add_running_task(task_id, self.name)
-            start_time = time.time()
-            result = self.process(state)
-            end_time = time.time()
-            if task_id:
-                add_done_task(task_id, self.name)
-                add_node_duration(task_id, self.name, end_time-start_time)
+        # 创建 Trace Span
+        trace_mgr = get_trace_manager()
+        span_ctx = trace_mgr.create_span(
+            trace_id=trace_id,
+            name=self.name,
+            input_data={"state_keys": list(state.keys())},
+        )
 
-            # 3. 执行节点成功
-            self.logger.info(f"--- {self.name} 完成 ---")
-            return result
-        except Exception as e:
-            self.logger.error(f"{self.name} 执行失败: {e}")
-            raise ImportProcessError(
-                message=str(e),
-                node_name=self.name,
-                cause=e
-            )
+        with span_ctx:
+            try:
+                # 1. 开始准备执行节点
+                self.logger.info(f"--- {self.name} 开始 ---")
+
+                # 2. 执行节点
+                if task_id:
+                    add_running_task(task_id, self.name)
+                start_time = time.time()
+                result = self.process(state)
+                end_time = time.time()
+                if task_id:
+                    add_done_task(task_id, self.name)
+                    add_node_duration(task_id, self.name, end_time-start_time)
+
+                span_ctx.update(output={"state_keys": list(result.keys())})
+
+                # 3. 执行节点成功
+                self.logger.info(f"--- {self.name} 完成 ---")
+                return result
+            except Exception as e:
+                self.logger.error(f"{self.name} 执行失败: {e}")
+                raise ImportProcessError(
+                    message=str(e),
+                    node_name=self.name,
+                    cause=e
+                )
 
     @abstractmethod
     def process(self, state: T) -> T:
@@ -121,13 +135,10 @@ class BaseNode(ABC):
 # 配置日志格式
 def setup_logging(level: int = logging.INFO):
     """
-    配置导入流程日志
+    配置导入流程日志（JSON 格式）
 
     Args:
         level: 日志级别
     """
-    logging.basicConfig(
-        level=level,
-        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt='%Y-%m-%d %H:%M:%S'
-    )
+    from knowledge.utils.log_util import setup_json_logging
+    setup_json_logging(level)

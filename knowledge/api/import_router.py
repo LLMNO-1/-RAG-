@@ -46,7 +46,11 @@ def create_app():
     # 4. 注册路由
     register_router(app)
 
-    # 5. 返回fastapi实例
+    # 5. 注册指标路由
+    from knowledge.api.metrics_router import router as metrics_router
+    app.include_router(metrics_router)
+
+    # 6. 返回fastapi实例
     return app
 
 

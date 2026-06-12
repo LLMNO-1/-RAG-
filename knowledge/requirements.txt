@@ -7,3 +7,4 @@ openai-agents
 pymilvus
 grandalf
 mineru[all]
+langfuse>=2.0.0

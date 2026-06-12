@@ -1,3 +1,4 @@
+import time
 from typing import List, Dict, Any, Tuple
 from langchain_openai import ChatOpenAI
 from knowledge.processor.query_processor.base import BaseNode, T
@@ -7,6 +8,7 @@ from knowledge.utils.mongo_history_util import save_chat_message
 from knowledge.utils.task_util import set_task_result
 from knowledge.utils.sse_util import push_sse_event, SSEEvent
 from knowledge.prompts.query_prompt import ANSWER_PROMPT
+from knowledge.utils.trace_util import get_trace_manager
 
 
 class AnswerOutPutNode(BaseNode):
@@ -25,6 +27,9 @@ class AnswerOutPutNode(BaseNode):
         Returns:
 
         """
+
+        # 缓存 trace_id 供子方法使用
+        self._current_trace_id = state.get('trace_id', '')
 
         # 1. 获取是否是流式
         is_stream = state.get('is_stream')
@@ -202,6 +207,10 @@ class AnswerOutPutNode(BaseNode):
             # 写入到任务结果队列中(非流式调用)
             set_task_result(task_id=task_id, key="answer", value=state['answer'])
 
+    def _get_trace_id_from_state(self) -> str:
+        """获取缓存的 trace_id"""
+        return getattr(self, '_current_trace_id', '')
+
     def _invoke_llm(self, prompt: str, llm_client: ChatOpenAI) -> str:
         """
         非流式LLM调用
@@ -212,6 +221,8 @@ class AnswerOutPutNode(BaseNode):
         Returns:
 
         """
+        trace_mgr = get_trace_manager()
+        start_time = time.time()
         try:
             # 1. 同步调用
             llm_res = llm_client.invoke(prompt)
@@ -219,7 +230,28 @@ class AnswerOutPutNode(BaseNode):
             # 2. 获取内容
             llm_content = getattr(llm_res, 'content', "") or ""
 
-            # 3. 判断
+            # 3. 记录 Generation Span
+            usage = {}
+            try:
+                meta = getattr(llm_res, 'response_metadata', {}) or {}
+                usage = {
+                    "input": meta.get("token_usage", {}).get("prompt_tokens", 0),
+                    "output": meta.get("token_usage", {}).get("completion_tokens", 0),
+                }
+            except Exception:
+                pass
+
+            trace_mgr.create_generation(
+                trace_id=self._get_trace_id_from_state(),
+                name="llm_answer_generation",
+                model=getattr(llm_client, 'model_name', 'unknown'),
+                input_text=prompt,
+                output_text=llm_content,
+                usage=usage,
+                metadata={"latency_ms": round((time.time() - start_time) * 1000)},
+            )
+
+            # 4. 判断
             if not llm_content:
                 return "LLM暂无法回答"
 
@@ -237,6 +269,8 @@ class AnswerOutPutNode(BaseNode):
         Returns:
 
         """
+        trace_mgr = get_trace_manager()
+        start_time = time.time()
         accelerate_delta = ""  # 获取全量数据
         try:
             # 1. 流式调用
@@ -250,6 +284,16 @@ class AnswerOutPutNode(BaseNode):
                                    data={"delta": delta_text}
                                    )
                     accelerate_delta += delta_text
+
+            # 2. 流式结束后记录 Generation Span
+            trace_mgr.create_generation(
+                trace_id=self._get_trace_id_from_state(),
+                name="llm_answer_generation",
+                model=getattr(llm_client, 'model_name', 'unknown'),
+                input_text=prompt,
+                output_text=accelerate_delta,
+                metadata={"latency_ms": round((time.time() - start_time) * 1000), "stream": True},
+            )
         except Exception as e:
             return "LLM暂无法回答"
 

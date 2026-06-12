@@ -57,6 +57,7 @@ class ImportGraphState(TypedDict, total=False):
     md_content: str  # Markdown 文档内容
 
     chunks: List  # 文档切片列表
+    trace_id: str  # LangFuse Trace ID
 
     # ==================== 默认状态 ====================
 
@@ -86,6 +87,7 @@ GRAPH_DEFAULT_STATE: ImportGraphState = {
     "chunks": [],
 
     "item_name": "",
+    "trace_id": "",
 
 }
 

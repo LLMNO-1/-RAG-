@@ -13,6 +13,7 @@ from knowledge.utils.task_util import update_task_status, add_running_task, add_
     TASK_STATUS_PROCESSING, \
     TASK_STATUS_COMPLETED, \
     TASK_STATUS_FAILED
+from knowledge.utils.trace_util import get_trace_manager
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -44,28 +45,43 @@ class UpLoadService:
         # 1. 更新任务状态为processing
         update_task_status(task_id, TASK_STATUS_PROCESSING)
 
-        # 2. 定义运行graph流程的状态
+        # 2. 创建 LangFuse Trace
+        trace_mgr = get_trace_manager()
+        trace = trace_mgr.create_trace(
+            name="import",
+            metadata={
+                "task_id": task_id,
+                "import_file_path": import_file_path,
+                "file_dir": file_dir,
+            },
+        )
+        trace_id = trace.id if trace else ""
+
+        # 3. 定义运行graph流程的状态
         graph_state = {
             "task_id": task_id,
             "import_file_path": import_file_path,
-            "file_dir": file_dir
+            "file_dir": file_dir,
+            "trace_id": trace_id,
         }
 
         # stream:迭代整个graph图状态可以得到每一个节点的事件(节点的名字以及节点操作完state之后的新状态)
-        # 3. 运行整个导入图状态
+        # 4. 运行整个导入图状态
         try:
             for event in import_app.stream(graph_state):
 
                 for key, value in event.items():
                     logger.info(f"当前正在执行的节点--->{key}")
 
-            # 3.1 更新任务为已完成
+            # 4.1 更新任务为已完成
             update_task_status(task_id, TASK_STATUS_COMPLETED)
         except Exception as e:
             logger.error(f"[{task_id}] 执行导入过程中出现异常 原因{str(e)}")
 
-            # 3.2 更新任务为失败
+            # 4.2 更新任务为失败
             update_task_status(task_id, TASK_STATUS_FAILED)
+        finally:
+            trace_mgr.flush()
 
     def process_upload_file(self, file: UploadFile):
         """

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1.0" />
+  <title>掌柜智库 · 可观测性仪表盘</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+  <style>
+    :root{
+      --bg:#0f172a;
+      --card:rgba(30, 41, 59, 0.8);
+      --text:#e2e8f0;
+      --muted:#94a3b8;
+      --brand:#38bdf8;
+      --brand2:#818cf8;
+      --border:rgba(255,255,255,0.1);
+      --green:#34d399;
+      --red:#f87171;
+      --yellow:#fbbf24;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family: "Segoe UI", "Microsoft YaHei", system-ui, -apple-system, sans-serif;
+      background:var(--bg);
+      color:var(--text);
+      padding:20px;
+      min-height:100vh;
+    }
+    .header{
+      display:flex;
+      align-items:center;
+      justify-content:space-between;
+      margin-bottom:24px;
+      flex-wrap:wrap;
+      gap:12px;
+    }
+    .header h1{font-size:22px;margin:0}
+    .header a{color:var(--brand);text-decoration:none;font-size:13px}
+    .cards{
+      display:grid;
+      grid-template-columns:repeat(auto-fit, minmax(180px, 1fr));
+      gap:14px;
+      margin-bottom:24px;
+    }
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:16px;
+      backdrop-filter: blur(6px);
+    }
+    .card .label{font-size:12px;color:var(--muted);margin-bottom:6px}
+    .card .value{font-size:28px;font-weight:700}
+    .card .sub{font-size:11px;color:var(--muted);margin-top:4px}
+    .card.green .value{color:var(--green)}
+    .card.red .value{color:var(--red)}
+    .card.blue .value{color:var(--brand)}
+    .section{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:18px;
+      margin-bottom:20px;
+    }
+    .section h2{font-size:16px;margin:0 0 14px;color:var(--text)}
+    table{width:100%;border-collapse:collapse;font-size:13px}
+    th{text-align:left;color:var(--muted);font-weight:500;padding:8px 10px;border-bottom:1px solid var(--border)}
+    td{padding:8px 10px;border-bottom:1px solid rgba(255,255,255,0.05)}
+    tr:hover{background:rgba(56,189,248,0.05)}
+    .badge{
+      display:inline-block;
+      padding:2px 10px;
+      border-radius:999px;
+      font-size:11px;
+      font-weight:600;
+    }
+    .badge.ok{background:rgba(52,211,153,0.15);color:var(--green)}
+    .badge.fail{background:rgba(248,113,113,0.15);color:var(--red)}
+    .badge.ing{background:rgba(251,191,36,0.15);color:var(--yellow)}
+    .chart-wrap{
+      max-width:100%;
+      height:260px;
+    }
+    .empty{color:var(--muted);text-align:center;padding:30px;font-size:13px}
+    .refresh-bar{
+      display:flex;
+      align-items:center;
+      gap:10px;
+      margin-bottom:16px;
+      font-size:12px;
+      color:var(--muted);
+    }
+    .refresh-bar button{
+      border:1px solid var(--border);
+      background:var(--card);
+      color:var(--text);
+      padding:6px 14px;
+      border-radius:8px;
+      cursor:pointer;
+      font-size:12px;
+    }
+    .refresh-bar button:hover{background:rgba(56,189,248,0.15)}
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>📊 掌柜智库 · 可观测性仪表盘</h1>
+    <div>
+      <a href="/front/chat.html">← 返回聊天</a>
+    </div>
+  </div>
+
+  <div class="refresh-bar">
+    <span id="refreshTime">上次刷新：--</span>
+    <button onclick="refresh()">手动刷新</button>
+    <span>（每 10 秒自动刷新）</span>
+  </div>
+
+  <div class="cards" id="cards">
+    <div class="card blue"><div class="label">总请求数</div><div class="value" id="total">--</div></div>
+    <div class="card green"><div class="label">已完成</div><div class="value" id="completed">--</div></div>
+    <div class="card red"><div class="label">失败</div><div class="value" id="failed">--</div></div>
+    <div class="card"><div class="label">成功率</div><div class="value" id="rate">--</div></div>
+    <div class="card"><div class="label">P50 延迟</div><div class="value" id="p50">--</div></div>
+    <div class="card"><div class="label">P95 延迟</div><div class="value" id="p95">--</div></div>
+  </div>
+
+  <div class="section">
+    <h2>节点耗时分布（最近任务）</h2>
+    <div class="chart-wrap">
+      <canvas id="nodeChart"></canvas>
+    </div>
+    <div class="empty" id="nodeEmpty" style="display:none">暂无节点耗时数据</div>
+  </div>
+
+  <div class="section">
+    <h2>最近任务列表</h2>
+    <table>
+      <thead><tr><th>任务 ID</th><th>状态</th><th>总耗时</th><th>节点数</th><th>涉及节点</th></tr></thead>
+      <tbody id="taskTable"><tr><td colspan="5" class="empty">暂无任务数据</td></tbody>
+    </table>
+  </div>
+
+  <script>
+    const API_BASE = `${location.protocol}//${location.host}`.includes('http')
+      ? `${location.protocol}//${location.host}`
+      : 'http://127.0.0.1:8002';
+
+    let nodeChart = null;
+
+    function formatDuration(seconds){
+      if(seconds == null || isNaN(seconds)) return '--';
+      const s = Number(seconds);
+      if(s >= 60) return `${Math.floor(s/60)}分${(s%60).toFixed(1)}秒`;
+      if(s >= 1) return `${s.toFixed(2)}秒`;
+      return `${(s*1000).toFixed(0)}毫秒`;
+    }
+
+    function statusBadge(status){
+      const map = { completed:'ok', failed:'fail', processing:'ing' };
+      const label = { completed:'已完成', failed:'失败', processing:'处理中' };
+      return `<span class="badge ${map[status]||''}">${label[status]||status}</span>`;
+    }
+
+    async function refresh(){
+      try {
+        // 获取概览数据
+        const overviewRes = await fetch(`${API_BASE}/metrics/overview`);
+        const overview = await overviewRes.json();
+
+        document.getElementById('total').textContent = overview.total_requests || 0;
+        document.getElementById('completed').textContent = overview.completed || 0;
+        document.getElementById('failed').textContent = overview.failed || 0;
+        document.getElementById('rate').textContent = (overview.success_rate || 0) + '%';
+        document.getElementById('p50').textContent = formatDuration(overview.latency_p50_s);
+        document.getElementById('p95').textContent = formatDuration(overview.latency_p95_s);
+
+        document.getElementById('refreshTime').textContent =
+          '上次刷新：' + new Date().toLocaleTimeString('zh-CN');
+
+        // 获取节点数据
+        const nodesRes = await fetch(`${API_BASE}/metrics/nodes`);
+        const nodesData = await nodesRes.json();
+        renderNodeChart(nodesData);
+
+        // 获取最近任务
+        const tasksRes = await fetch(`${API_BASE}/metrics/recent?limit=15`);
+        const tasks = await tasksRes.json();
+        renderTaskTable(tasks);
+      } catch (e) {
+        console.error('仪表盘数据获取失败:', e);
+      }
+    }
+
+    function renderNodeChart(data){
+      const canvas = document.getElementById('nodeChart');
+      const empty = document.getElementById('nodeEmpty');
+      const entries = Object.entries(data || {});
+      if(entries.length === 0){
+        canvas.style.display = 'none';
+        empty.style.display = 'block';
+        return;
+      }
+      canvas.style.display = 'block';
+      empty.style.display = 'none';
+
+      const labels = entries.map(([k]) => k);
+      const avgVals = entries.map(([,v]) => v.avg_s || 0);
+      const maxVals = entries.map(([,v]) => v.max_s || 0);
+
+      if(nodeChart) nodeChart.destroy();
+
+      nodeChart = new Chart(canvas, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            { label: '平均耗时', data: avgVals, backgroundColor: 'rgba(56,189,248,0.5)', borderColor: '#38bdf8', borderWidth: 1 },
+            { label: '最大耗时', data: maxVals, backgroundColor: 'rgba(248,113,113,0.35)', borderColor: '#f87171', borderWidth: 1 },
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            y: { title: { display: true, text: '耗时（秒）', color: '#94a3b8' }, ticks: { color: '#94a3b8' }, grid: { color: 'rgba(255,255,255,0.06)' } },
+            x: { ticks: { color: '#94a3b8', font: { size: 11 } }, grid: { display: false } }
+          },
+          plugins: { legend: { labels: { color: '#94a3b8' } } }
+        }
+      });
+    }
+
+    function renderTaskTable(tasks){
+      const tbody = document.getElementById('taskTable');
+      const arr = Array.isArray(tasks) ? tasks : [];
+      if(arr.length === 0){
+        tbody.innerHTML = '<tr><td colspan="5" class="empty">暂无任务数据</td></tr>';
+        return;
+      }
+      tbody.innerHTML = arr.map(t => `
+        <tr>
+          <td style="font-family:monospace;font-size:12px">${t.task_id || ''}</td>
+          <td>${statusBadge(t.status)}</td>
+          <td>${formatDuration(t.total_duration_s)}</td>
+          <td>${t.node_count || 0}</td>
+          <td style="font-size:11px;color:var(--muted)">${(t.nodes||[]).join(', ') || '--'}</td>
+        </tr>
+      `).reverse().join('');
+    }
+
+    refresh();
+    setInterval(refresh, 10000);
+  </script>
+</body>
+</html>
